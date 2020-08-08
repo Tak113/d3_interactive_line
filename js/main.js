@@ -1,136 +1,196 @@
 // main.js
 
 //variable setting
-var margin = {left:80, right:100, top:50, bottom:100},
-	height = 500 - margin.top - margin.bottom, //graph height
-	width = 800 - margin.right - margin.left; //graph width
+var margin = { left:80, right:100, top:50, bottom:100 },
+    height = 500 - margin.top - margin.bottom, //graph height
+    width = 800 - margin.left - margin.right; //graph width
 
 //svg setting
-var g = d3.select("#chart-area")
-	.append("svg")
-		.attr("width", width + margin.left + margin.right) //back to svg x
-		.attr("height", height + margin.top + margin.bottom) //back to svg y
-	.append("g")
-		.attr("transform", "translate(" + margin.left + ", " + margin.top + ")");
+var svg = d3.select("#chart-area")
+    .append("svg")
+    .attr("width", width + margin.left + margin.right) //back to svg x
+    .attr("height", height + margin.top + margin.bottom) //back to svg y
+var g = svg.append("g")
+        .attr("transform", "translate(" + margin.left + 
+            ", " + margin.top + ")");
 
-var parseTime = d3.timeParse("%d/%m/%Y");
-// var parseTime = d3.timeParse("%Y");
-//for tooltip
-var bisectDate = d3.bisector(d=>{return d.year;}).left;
+var t = function(){ return d3.transition().duration(1000); }
 
-//scales
-var x = d3.scaleTime().range([0,width]);
-var y = d3.scaleLinear().range([height,0]);
+var parseTime = d3.timeParse("%d/%m/%Y"); //change to parsed time
+var formatTime = d3.timeFormat("%d/%m/%Y"); //change back from parsed time
+var bisectDate = d3.bisector(function(d) { return d.date; }).left; // for tool tip
 
-//axis generators
+// Add the line for the first time
+g.append("path")
+    .attr("class", "line")
+    .attr("fill", "none")
+    .attr("stroke", "grey")
+    .attr("stroke-width", "3px");
+
+// Labels
+var xLabel = g.append("text")
+    .attr("class", "x axisLabel")
+    .attr("y", height + 50)
+    .attr("x", width / 2)
+    .attr("font-size", "20px")
+    .attr("text-anchor", "middle")
+    .text("Time");
+var yLabel = g.append("text")
+    .attr("class", "y axisLabel")
+    .attr("transform", "rotate(-90)")
+    .attr("y", -60)
+    .attr("x", -170)
+    .attr("font-size", "20px")
+    .attr("text-anchor", "middle")
+    .text("Price (USD)")
+
+// Scales
+var x = d3.scaleTime().range([0, width]);
+var y = d3.scaleLinear().range([height, 0]);
+
+// X-axis
 var xAxisCall = d3.axisBottom()
-var yAxisCall = d3.axisLeft()
-	.ticks(6)
-	.tickFormat(d => {return parseInt(d/1000) + "k";});
-
-//axis groups
+    .ticks(4);
 var xAxis = g.append("g")
-	.attr("class", "x axis")
-	.attr("transform", "translate(0," + height + ")");
+    .attr("class", "x axis")
+    .attr("transform", "translate(0," + height +")");
+
+// Y-axis
+var yAxisCall = d3.axisLeft()
 var yAxis = g.append("g")
-	.attr("class", "y axis")
+    .attr("class", "y axis");
 
-//y axis label
-yAxis.append("text")
-	.attr("class", "axis title")
-	.attr("transform", "rotate(-90)")
-	.attr("y",10)
-	.style("text-anchor","end")
-	.attr("fill", "#5D6971")
-	// .attr("dy",".5em")
-	.text("Population");
+// Event listeners
+$("#coin-select").on("change", update)
+$("#var-select").on("change", update)
 
-//line path generator, this can be outside (why can be outside?)
-var line = d3.line()
-	.x(d=>{return x(d.year);})
-	.y(d=>{return y(d.value);});
+// Add jQuery UI slider
+$("#date-slider").slider({
+    range: true,
+    max: parseTime("31/10/2017").getTime(), //date put in html
+    min: parseTime("12/5/2013").getTime(), //date pu in html
+    step: 86400000, // One day
+    values: [parseTime("12/5/2013").getTime(), parseTime("31/10/2017").getTime()],
+    slide: function(event, ui){
+        $("#dateLabel1").text(formatTime(new Date(ui.values[0]))); //update css id
+        $("#dateLabel2").text(formatTime(new Date(ui.values[1]))); //update css id
+        update();
+    }
+});
 
 //load data
-d3.json("data/coins.json").then(data=>{
-	console.log(data);
+d3.json("data/coins.json").then(function(data){
+    console.log(data);
 
-	// //data cleaning
-	// data.forEach(d=>{
-	// 	d.year = parseTime(d.year);
-	// 	d.value = +d.value;
-	// });
+    // Prepare and clean data
+    filteredData = {};
+    for (var coin in data) {
+        if (!data.hasOwnProperty(coin)) {
+            continue;
+        }
+        filteredData[coin] = data[coin].filter(function(d){
+            return !(d["price_usd"] == null)
+        })
+        filteredData[coin].forEach(function(d){
+            d["price_usd"] = +d["price_usd"];
+            d["24h_vol"] = +d["24h_vol"];
+            d["market_cap"] = +d["market_cap"];
+            d["date"] = parseTime(d["date"])
+        });
+    }
 
-	//prepare and clean data
-	filteredData = {};
-	for (var coin in data) {
-		if (!data.hasOwnProperty(coin)) {
-			continue; //if array does not has data, it returns true and continue for below manipulations to clean up
-		}
-		filteredData[coin] = data[coin].filter(d=>{ //if price_usd is not a null, filter by these
-			return !(d["price_usd"] == null)
-		});
-		filteredData[coin].forEach(d=>{
-			d['price_usd'] = +d["price_usd"];
-			d['24h_vol'] = +d["24h_vol"];
-			d['market_cap'] = +d["market_cap"];
-			d['date'] = parseTime(d["date"]);
-		});
-	}
+    // Run the visualization for the first time
+    update();
+})
 
-	console.log(filteredData['bitcoin']);
+function update() {
+    // Filter data based on selections
+    var coin = $("#coin-select").val(),
+        yValue = $("#var-select").val(),
+        sliderValues = $("#date-slider").slider("values");
+    var dataTimeFiltered = filteredData[coin].filter(function(d){
+        return ((d.date >= sliderValues[0]) && (d.date <= sliderValues[1]))
+    });
 
-	//domain
-	x.domain(d3.extent(data, d=>{return d.year; }));
-    y.domain([d3.min(data, d=>{return d.value; }) / 1.005, 
-        d3.max(data, d=>{return d.value; }) * 1.005]);
-	
-	//generate axis
-	xAxis.call(xAxisCall.scale(x))
-	yAxis.call(yAxisCall.scale(y))
+    // Update scales
+    x.domain(d3.extent(dataTimeFiltered, function(d){ return d.date; }));
+    y.domain([d3.min(dataTimeFiltered, function(d){ return d[yValue]; }) / 1.005, 
+        d3.max(dataTimeFiltered, function(d){ return d[yValue]; }) * 1.005]);
 
-	//add the line for the first time
-	g.append("path")
-		.attr("class", "line")
-		.attr("fill", "none")
-		.attr("stroke", "grey")
-		.attr("stroke-width", "3px")
-		.attr("d", line(data));
+    // Fix for format values at y for different magnitude
+    var formatSi = d3.format(".2s"); //d3.format returns as G,k, m but wanted to convert to B, K, M
+    function formatAbbreviation(x) {
+      var s = formatSi(x);
+      switch (s[s.length - 1]) {
+        case "G": return s.slice(0, -1) + "B";
+        case "k": return s.slice(0, -1) + "K";
+      }
+      return s;
+    }
 
-	/**********tooltip**********/
-	var focus = g.append("g")
-		.attr("class", "focus")
-		.style("display", "none");
-	focus.append("line")
-		.attr("class","x-hover-line hover-line")
-		.attr("y1",0)
-		.attr("y2",height);
-	focus.append("line")
-		.attr("class","y-hover-line hover-line")
-		.attr("x1",0)
-		.attr("x2", width);
-	focus.append("circle")
-		.attr("r",6);
-	focus.append("text")
-		.attr("x",15);
-	g.append("rect")
-		.attr("class", "overlay")
-		.attr("width", width)
-		.attr("height",height)
-		.on("mouseover",function(){focus.style("display",null);})
-		.on("mouseout",function(){focus.style("display","none");})
-		.on("mousemove",mousemove);
-	
+    // Update axes
+    xAxisCall.scale(x);
+    xAxis.transition(t()).call(xAxisCall);
+    yAxisCall.scale(y);
+    yAxis.transition(t()).call(yAxisCall.tickFormat(formatAbbreviation));
+
+    // Clear old tooltips
+    d3.select(".focus").remove();
+    d3.select(".overlay").remove();
+
+    // Tooltip code
+    var focus = g.append("g")
+        .attr("class", "focus")
+        .style("display", "none");
+    focus.append("line")
+        .attr("class", "x-hover-line hover-line")
+        .attr("y1", 0)
+        .attr("y2", height);
+    focus.append("line")
+        .attr("class", "y-hover-line hover-line")
+        .attr("x1", 0)
+        .attr("x2", width);
+    focus.append("circle")
+        .attr("r", 5);
+    focus.append("text")
+        .attr("x", 15)
+        .attr("dy", ".31em");
+    svg.append("rect")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+        .attr("class", "overlay")
+        .attr("width", width)
+        .attr("height", height)
+        .on("mouseover", function() { focus.style("display", null); })
+        .on("mouseout", function() { focus.style("display", "none"); })
+        .on("mousemove", mousemove);
+        
     function mousemove() {
         var x0 = x.invert(d3.mouse(this)[0]),
-            i = bisectDate(data, x0, 1),
-            d0 = data[i - 1],
-            d1 = data[i],
-            d = x0 - d0.year > d1.year - x0 ? d1 : d0;
-        focus.attr("transform", "translate(" + x(d.year) + "," + y(d.value) + ")");
-        focus.select("text").text(d.value);
-        focus.select(".x-hover-line").attr("y2", height - y(d.value));
-        focus.select(".y-hover-line").attr("x2", -x(d.year));
+            i = bisectDate(dataTimeFiltered, x0, 1),
+            d0 = dataTimeFiltered[i - 1],
+            d1 = dataTimeFiltered[i],
+            d = (d1 && d0) ? (x0 - d0.date > d1.date - x0 ? d1 : d0) : 0;
+        focus.attr("transform", "translate(" + x(d.date) + "," + y(d[yValue]) + ")");
+        focus.select("text").text(function() { return d3.format("$,")(d[yValue].toFixed(2)); });
+        focus.select(".x-hover-line").attr("y2", height - y(d[yValue]));
+        focus.select(".y-hover-line").attr("x2", -x(d.date));
     }
-	/**********tooltip**********/
 
-});
+    // Path generator
+    line = d3.line()
+        .x(function(d){ return x(d.date); })
+        .y(function(d){ return y(d[yValue]); });
+
+    // Update our line path
+    g.select(".line")
+        .transition(t)
+        .attr("d", line(dataTimeFiltered));
+
+    // Update y-axis label
+    var newText = (yValue == "price_usd") ? "Price (USD)" :
+        ((yValue == "market_cap") ?  "Market Capitalization (USD)" : "24 Hour Trading Volume (USD)")
+    yLabel.text(newText);
+}
+
+
+
