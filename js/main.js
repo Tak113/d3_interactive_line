@@ -118,7 +118,7 @@ function update() {
         d3.max(dataTimeFiltered, function(d){ return d[yValue]; }) * 1.005]);
 
     // Fix for format values at y for different magnitude
-    var formatSi = d3.format(".2s"); //d3.format returns as G,k, m but wanted to convert to B, K, M
+    var formatSi = d3.format(".2s"); //d3.format returns as G,k, m but wanted to convert to B, K
     function formatAbbreviation(x) {
       var s = formatSi(x);
       switch (s[s.length - 1]) {
